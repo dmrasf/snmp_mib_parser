@@ -1,18 +1,3 @@
-"""
-Purpose:      SNMP MIB Parser
-Based on:     idlParse.py example (author Paul McGuire) in pyparsing-1.5.5
-Dependencies: pyparsing-1.5.5 module
-Copyright:    James Harwood 2011
-License:      You may freely use, modify, and distribute this software.
-Warranty:     THIS SOFTWARE HAS NO WARRANTY WHATSOEVER. USE AT YOUR OWN RISK.
-Version:      $Id: MibParser.py 5 2011-04-28 23:06:46Z jharwood757 $
-
-Notes:
-        ** The current version cannot handle Textual Convention statements **
-        Sorry, you'll have to comment them out.
-        I hope to fix this soon.
-
-"""
 import sys
 from pyparsing import (
     DelimitedList,
