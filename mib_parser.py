@@ -37,31 +37,6 @@ class mib_parse:
         self.node_dict = {}
         self.name_oid = {}
 
-        # pylint: disable=line-too-long
-        asn1_int = "(SNMP_ASN1_CLASS_UNIVERSAL | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_UNIVERSAL_INTEGER)"
-        asn1_octstr = "(SNMP_ASN1_CLASS_UNIVERSAL | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_UNIVERSAL_OCTET_STRING)"
-        asn1_objid = "(SNMP_ASN1_CLASS_UNIVERSAL | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_UNIVERSAL_OBJECT_ID)"
-        asn1_gauge = "(SNMP_ASN1_CLASS_APPLICATION | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_APPLICATION_GAUGE)"
-        asn1_counter = "(SNMP_ASN1_CLASS_APPLICATION | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_APPLICATION_COUNTER)"
-        asn1_tmticks = "(SNMP_ASN1_CLASS_APPLICATION | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_APPLICATION_TIMETICKS)"
-        asn1_ipaddress = "(SNMP_ASN1_CLASS_APPLICATION | SNMP_ASN1_CONTENTTYPE_PRIMITIVE | SNMP_ASN1_APPLICATION_IPADDR)"
-        # add other syntax types here
-        self.syntax_dict = {
-            "integer": asn1_int,
-            "integer32": asn1_int,
-            "octet": asn1_octstr,
-            "displaystring": asn1_octstr,
-            "object": asn1_objid,
-            "timeticks": asn1_tmticks,
-            "gauge": asn1_gauge,
-            "counter": asn1_counter,
-            "gauge32": asn1_gauge,
-            "counter32": asn1_counter,
-            "ipaddress": asn1_ipaddress,
-            "physaddress": asn1_octstr,
-            "networkaddress": asn1_ipaddress,
-        }
-
         self.bnf = self.smi_bnf()
 
     def add_node(self, node):
@@ -352,7 +327,7 @@ class mib_parse:
             self.node_list.reverse()
             print("Parsing of " + fname + " complete.")
 
-            gen = mib_generator(self.node_list, self.node_dict, self.syntax_dict, fname)
+            gen = mib_generator(self.node_list, self.node_dict, fname)
             gen.process()
         except ParseException as err:
             print(err.line)

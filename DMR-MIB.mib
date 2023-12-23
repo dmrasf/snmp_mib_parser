@@ -523,6 +523,22 @@
 		-- 1.3.6.1.4.1.12345.1.2
 		rectifier OBJECT IDENTIFIER ::= { cm02 2 }
 
+		rectifier1 OBJECT-TYPE
+			SYNTAX INTEGER
+			MAX-ACCESS read-only
+			STATUS current
+			DESCRIPTION
+				"rectifier1"
+			::= { rectifier 1 }
+
+		rectifier2 OBJECT-TYPE
+			SYNTAX INTEGER
+			MAX-ACCESS read-only
+			STATUS current
+			DESCRIPTION
+				"rectifier1"
+			::= { rectifier 4 }
+
 
 -- ----------------------------------------------------------------------
 -- ----------------------------------------------------------------------
