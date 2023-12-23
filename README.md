@@ -1,6 +1,6 @@
 ## 用法
 
 ```sh
-python MibParser.py <mib-file>
+python mib_parser.py <mib-file>
 ```
 
