@@ -63,13 +63,19 @@ class mib_parse:
         """object_identifier_action"""
         node = toks.asDict()
         node["type"] = "ident"
-        self.add_node(node)
+        if node["name"] in self.name_oid.keys():
+            print(f"OBJECT IDENTIFIER: {node['name']} repeat!")
+        else:
+            self.add_node(node)
 
     def identity_action(self, toks):
         """identify_action"""
         node = toks.asDict()
         node["type"] = "ident"
-        self.add_node(node)
+        if node["name"] in self.name_oid.keys():
+            print(f"MODULE-IDENTITY: {node['name']} repeat!")
+        else:
+            self.add_node(node)
 
     def enums_action(self, toks):
         """enums_action"""
@@ -196,8 +202,8 @@ class mib_parse:
         integer = identifier.set_results_name("syntax") + (Optional(syntax_opts))
         sequence_of = sequence_ + of_ + identifier.set_results_name("syn_seq_of")
         syn_obj_id = (object_ + identifier_).set_results_name("syntax")
-        syn_octet_string = (octet_ + string_).set_results_name("syntax") + Optional(
-            size_def
+        syn_octet_string = (
+            octet_.set_results_name("syntax") + string_ + Optional(size_def)
         )
         syntax = syntax_ + (syn_obj_id | syn_octet_string | sequence_of | integer)
         units = units_ + text.set_results_name("units")
