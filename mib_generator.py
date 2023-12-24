@@ -1,10 +1,5 @@
 class mib_generator:
     def __init__(self, nodelist, nodedict, fname):
-        """Constructor for the MibGenerator class
-        converts the input filename to the output filename
-        opens the output file
-        writes some prelude code to the output file
-        """
         self.node_list = nodelist
         self.node_dict = nodedict
         self.syntax_dict = {
@@ -160,6 +155,7 @@ class mib_generator:
             if (
                 self.is_array_of_scalar(self.node_dict[kid[3]]["kids"])
                 or kid[1] == "scalar"
+                or kid[1] == "table"
             ):
                 f.write(f"    &{kid[0]}_root.node.node, // {kid[0]}\r\n")
             else:
@@ -182,17 +178,42 @@ class mib_generator:
         )
         self.generate_empty_line(1)
 
-    def generate_column(self, node):
-        """生成column"""
-        print("column: ", node["name"])
-
     def generate_table(self, node):
         """生成table"""
         print("table: ", node["name"])
+        row_name = ""
+        if len(node["kids"]) == 1:
+            self.generate_row(self.node_dict[node["kids"][0][3]])
+            row_name = node["kids"][0][0]
+            row_name = row_name + "_"
+        f = self.out_file_c
+        self.node_extern.append(
+            f"extern const struct snmp_table_simple_node {node['name']}_root;\r\n"
+        )
+        f.write(f"const struct snmp_table_simple_node {node['name']}_root =\r\n")
+        f.write(f"    SNMP_TABLE_CREATE_SIMPLE(oid, {node['name']}_{row_name}row,\r\n")
+        f.write(f"                             {node['name']}_get_cell_value,\r\n")
+        f.write(
+            f"                             {node['name']}_get_next_cell_instance_and_value);\r\n"
+        )
+        f.write("\r\n")
 
     def generate_row(self, node):
         """生成row"""
         print("row: ", node["name"])
+        f = self.out_file_c
+        f.write(
+            f"static const struct snmp_table_simple_col_def *const {node['parent_name']}_{node['name']}_row[] = {'{'}\r\n"
+        )
+        for kid in node["kids"]:
+            f.write(
+                f"     {'{'}{kid[2]}, {self.get_datatype(self.node_dict[kid[3]]['syntax'])}, SNMP_VARIANT_VALUE_TYPE_S32{'}'}, // {kid[0]}\r\n"
+            )
+        f.write("};\r\n")
+
+    def generate_column(self, node):
+        """生成column"""
+        print("column: ", node["name"])
 
     def generate_notification(self, node):
         """生成notification"""
@@ -244,12 +265,6 @@ class mib_generator:
             return
         elif tp == "table":
             self.generate_table(node)
-            return
-        elif tp == "row":
-            self.generate_row(node)
-            return
-        elif tp == "column":
-            self.generate_column(node)
             return
         elif tp == "notification":
             self.generate_notification(node)
