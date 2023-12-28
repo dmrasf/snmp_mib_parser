@@ -13,15 +13,16 @@ from pyparsing import (
     nums,
     restOfLine,
 )
-from mib_generator import mib_generator
+from mib_generator import MibGenerator
 
 
-class mib_parse:
+class MibParser:
+    """MIB解析器"""
+
     def __init__(self) -> None:
         self.node_list = []
         self.node_dict = {}
         self.name_oid = {}
-
         self.bnf = self.smi_bnf()
 
     def add_node(self, node):
@@ -63,8 +64,9 @@ class mib_parse:
         """object_identifier_action"""
         node = toks.asDict()
         node["type"] = "ident"
-        if node["name"] in self.name_oid.keys():
+        if node["name"] in self.name_oid:
             print(f"OBJECT IDENTIFIER: {node['name']} repeat!")
+            raise ParseException("de", msg="ddd")
         else:
             self.add_node(node)
 
@@ -72,7 +74,7 @@ class mib_parse:
         """identify_action"""
         node = toks.asDict()
         node["type"] = "ident"
-        if node["name"] in self.name_oid.keys():
+        if node["name"] in self.name_oid:
             print(f"MODULE-IDENTITY: {node['name']} repeat!")
         else:
             self.add_node(node)
@@ -199,7 +201,7 @@ class mib_parse:
 
         syntax_opts = (syntax_enum | size_def | bounds).set_name("syntaxOpts")
 
-        integer = identifier.set_results_name("syntax") + (Optional(syntax_opts))
+        integer = identifier.set_results_name("syntax") + Optional(syntax_opts)
         sequence_of = sequence_ + of_ + identifier.set_results_name("syn_seq_of")
         syn_obj_id = (object_ + identifier_).set_results_name("syntax")
         syn_octet_string = (
@@ -318,7 +320,7 @@ class mib_parse:
             self.node_list.reverse()
             print("Parsing of " + fname + " complete.")
 
-            gen = mib_generator(self.node_list, self.node_dict, fname)
+            gen = MibGenerator(self.node_list, self.node_dict, self.name_oid, fname)
             gen.process()
         except ParseException as err:
             print(err.line)
@@ -333,7 +335,7 @@ class mib_parse:
 if __name__ == "__main__":
     args = sys.argv[1:]
     if len(args) != 1:
-        print("usage: mibparser.py <mib-file>")
+        print("usage: mib_parser.py <mib-file>")
     else:
-        parse = mib_parse()
+        parse = MibParser()
         parse.parse(args[0])
