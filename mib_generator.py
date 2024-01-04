@@ -16,6 +16,7 @@ class MibGenerator:
             "displaystring": "SNMP_ASN1_TYPE_OCTET_STRING",
             "object": "SNMP_ASN1_TYPE_OBJECT_ID",
             "timeticks": "SNMP_ASN1_TYPE_TIMETICKS",
+            "bits": "SNMP_ASN1_TYPE_UNSIGNED32",
             "gauge": "SNMP_ASN1_TYPE_GAUGE",
             "gauge32": "SNMP_ASN1_TYPE_GAUGE",
             "counter": "SNMP_ASN1_TYPE_COUNTER",
@@ -32,6 +33,7 @@ class MibGenerator:
             "displaystring": "const char*",
             "object": "u32_t",
             "timeticks": "u32_t",
+            "bits": "u32_t",
             "gauge": "u32_t",
             "gauge32": "u32_t",
             "counter": "u32_t",
@@ -48,6 +50,7 @@ class MibGenerator:
             "displaystring": "const_ptr",
             "object": "u32",
             "timeticks": "u32",
+            "bits": "u32",
             "gauge": "u32",
             "gauge32": "u32",
             "counter": "u32",
@@ -64,6 +67,7 @@ class MibGenerator:
             "displaystring": "SNMP_VARIANT_VALUE_TYPE_CONST_PTR",
             "object": "SNMP_VARIANT_VALUE_TYPE_U32",
             "timeticks": "SNMP_VARIANT_VALUE_TYPE_U32",
+            "bits": "SNMP_VARIANT_VALUE_TYPE_U32",
             "gauge": "SNMP_VARIANT_VALUE_TYPE_U32",
             "gauge32": "SNMP_VARIANT_VALUE_TYPE_U32",
             "counter": "SNMP_VARIANT_VALUE_TYPE_U32",
@@ -90,40 +94,77 @@ class MibGenerator:
         self.struct_declare = []
         self.out_file_c.write(f'#include "{self.out_fname_h}"\n\n')
 
-    def get_syntax_type(self, syntax):
+    def get_syntax_type(self, node):
         """获取syntax类型"""
-        dt = syntax.lower()
+        dt = node["syntax"].lower()
         if dt in self.syntax_dict:
             return self.syntax_dict[dt]
         return "SNMP_ASN1_TYPE_INTEGER"
 
-    def get_ctype(self, syntax):
+    def get_ctype(self, node):
         """获取c类型"""
-        dt = syntax.lower()
+        dt = node["syntax"].lower()
         if dt in self.syntax_ctype_dict:
             return self.syntax_ctype_dict[dt]
         return "u32_t"
 
-    def get_variant_value_type(self, syntax):
+    def get_variant_value_type(self, node):
         """获取snmp_variant_value类型"""
-        dt = syntax.lower()
+        dt = node["syntax"].lower()
         if dt in self.syntax_variant_value_type_dict:
             return self.syntax_variant_value_type_dict[dt]
         return "u32"
 
-    def get_data_type(self, syntax):
+    def get_data_type(self, node):
         """获取datatype table"""
-        dt = syntax.lower()
+        dt = node["syntax"].lower()
         if dt in self.datatype_dict:
             return self.datatype_dict[dt]
         return "SNMP_VARIANT_VALUE_TYPE_U32"
 
-    def get_access(self, access):
+    def get_access(self, node):
         """获取权限"""
-        ac = access.lower()
+        ac = node["access"].lower()
         if ac in self.access_dict:
             return self.access_dict[ac]
         return "SNMP_NODE_INSTANCE_NOT_ACCESSIBLE"
+
+    def get_enums_str(self, node):
+        """返回所有枚举"""
+        enums_dict = {}
+        enums_str = ""
+        enums_list = node["enums"]
+        for i in range(1, len(enums_list), 2):
+            enums_dict[int(enums_list[i])] = enums_list[i - 1]
+            enums_str = enums_str + enums_list[i] + ":" + enums_list[i - 1] + " "
+        enums_str = enums_str[:-1]
+        return enums_str
+
+    def get_enums_dict(self, node):
+        """返回字典"""
+        enums_dict = {}
+        enums_list = node["enums"]
+        for i in range(1, len(enums_list), 2):
+            enums_dict[int(enums_list[i])] = enums_list[i - 1]
+        return enums_dict
+
+    def get_bounds(self, node):
+        """获取取值范围"""
+        bounds = []
+        if "bounds" in node:
+            bounds_str = node["bounds"]
+            bounds = bounds_str.split("..")
+            bounds = list(map(int, bounds))
+        elif "enums" in node:
+            enums_dict = self.get_enums_dict(node)
+            mi = min(enums_dict.keys())
+            ma = max(enums_dict.keys())
+            if mi != ma:
+                bounds.append(mi)
+                bounds.append(ma)
+            else:
+                bounds.append(mi)
+        return bounds
 
     def generate_scalar_array_get_method(self, node):
         """生成scalar_array_get_method"""
@@ -136,15 +177,20 @@ class MibGenerator:
             f"s16_t {node['name']}_get_value(const struct snmp_scalar_array_node_def *scalar, "
             "void *value)\n"
             "{\n"
-            "    u32_t *uint_ptr = (u32_t *)value;\n"
             "    switch (scalar->oid) {\n"
         )
         for kid in node["kids"]:
-            f.write(
-                f"    case {kid[2]}: // {kid[0]}\n"
-                f"        *uint_ptr = {kid[2]};\n"
-                "        return sizeof(*uint_ptr);\n"
-            )
+            f.write(f"    case {kid[2]}: // {kid[0]}\n")
+            if "enums" in self.node_dict[kid[3]]:
+                f.write(f"        // {self.get_enums_str(self.node_dict[kid[3]])}\n")
+            ct = self.get_ctype(self.node_dict[kid[3]])
+            if ct == self.syntax_ctype_dict["octet"]:
+                f.write('        return sprintf((char*)value, "abcdef");\n')
+            else:
+                f.write(
+                    f"        *({ct} *)value = {kid[2]};\n"
+                    f"        return sizeof(*({ct} *)value);\n"
+                )
         f.write("    default:\n")
         f.write("        return 0;\n")
         f.write("    }\n")
@@ -161,10 +207,36 @@ class MibGenerator:
             f"snmp_err_t {node['name']}_set_test(const struct snmp_scalar_array_node_def *scalar, "
             "u16_t len, void *value)\n"
             "{\n"
-            "    snmp_err_t ret = SNMP_ERR_NOERROR;\n"
-            "    return ret;\n"
-            "}\n\n"
+            "    switch (scalar->oid) {\n"
         )
+        for kid in node["kids"]:
+            kid_node = self.node_dict[kid[3]]
+            if kid_node["access"] not in ["read-write", "write-only"]:
+                continue
+            bound = self.get_bounds(kid_node)
+            ct = self.get_ctype(kid_node)
+            if len(bound) == 1:
+                f.write(f"    case {kid[2]}: // {kid[0]}\n")
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write(f"        if (len != {bound[0]})\n")
+                else:
+                    f.write(f"        if (*({ct} *)value != {bound[0]})\n")
+                f.write("            return SNMP_ERR_WRONGVALUE;\n        break;\n")
+            elif len(bound) == 2:
+                f.write(f"    case {kid[2]}: // {kid[0]}\n")
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write(f"        if (len < {bound[0]} || len > {bound[1]})\n")
+                else:
+                    f.write(
+                        f"        if (*({ct} *)value < {bound[0]} || *({ct} *)value > {bound[1]})\n"
+                    )
+                f.write("            return SNMP_ERR_WRONGVALUE;\n        break;\n")
+            else:
+                f.write(f"    case {kid[2]}: break; // {kid[0]}\n")
+        f.write("    default: return SNMP_ERR_NOSUCHINSTANCE;\n")
+        f.write("    }\n")
+        f.write("    return SNMP_ERR_NOERROR;\n")
+        f.write("}\n\n")
 
     def generate_scalar_array_set_method(self, node):
         """生成scalar_array_set_method"""
@@ -177,20 +249,22 @@ class MibGenerator:
             f"snmp_err_t {node['name']}_set_value(const struct snmp_scalar_array_node_def *scalar, "
             "u16_t len, void *value)\n"
             "{\n"
-            "    snmp_err_t ret = SNMP_ERR_NOERROR;\n"
-            "    return ret;\n"
-            "}\n\n"
+            "    switch (scalar->oid) {\n"
         )
-
-    def get_bounds(self, entry_node_index):
-        """获取取值范围"""
-        bounds = [1]
-        if "bounds" in entry_node_index:
-            bounds_str = entry_node_index["bounds"]
-            bounds = bounds_str.split("..")
-        elif "enums" in entry_node_index:
-            bounds.append(int(len(entry_node_index["enums"]) / 2))
-        return bounds
+        for kid in node["kids"]:
+            kid_node = self.node_dict[kid[3]]
+            if kid_node["access"] in ["read-write", "write-only"]:
+                f.write(f"    case {kid[2]}: // {kid[0]}\n")
+                ct = self.get_ctype(kid_node)
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write("        // (char *)value;\n")
+                else:
+                    f.write(f"        // *({ct} *)value;\n")
+                f.write("        break;\n")
+        f.write("    default: return SNMP_ERR_NOSUCHINSTANCE;\n")
+        f.write("    }\n")
+        f.write("    return SNMP_ERR_NOERROR;\n")
+        f.write("}\n\n")
 
     def generate_table_get_cell_value_method(self, node):
         """生成table_get_cell_value_method"""
@@ -217,12 +291,14 @@ class MibGenerator:
         f.write("    switch (*column) {\n")
         for i, kid in enumerate(node["kids"]):
             f.write(f"    case {kid[2]}: // {kid[0]}\n")
-            snmp_variant_value = self.get_variant_value_type(
-                self.node_dict[kid[3]]["syntax"]
-            )
+            snmp_variant_value = self.get_variant_value_type(self.node_dict[kid[3]])
             if i == 0:
                 f.write(f"        value->{snmp_variant_value} = index;\n")
             else:
+                if "enums" in self.node_dict[kid[3]]:
+                    f.write(
+                        f"        // {self.get_enums_str(self.node_dict[kid[3]])}\n"
+                    )
                 kid_name = '"' + kid[0] + '"'
                 f.write(
                     f"        value->{snmp_variant_value} = "
@@ -236,7 +312,7 @@ class MibGenerator:
             f.write("        break;\n")
         f.write("    default:\n")
         f.write("        break;\n")
-        f.write("    }\n\n")
+        f.write("    }\n")
         f.write("    return SNMP_ERR_NOERROR;\n")
         f.write("}\n\n")
 
@@ -269,14 +345,16 @@ class MibGenerator:
         )
         f.write("    switch (*column) {\n")
         for i, kid in enumerate(node["kids"]):
-            snmp_variant_value = self.get_variant_value_type(
-                self.node_dict[kid[3]]["syntax"]
-            )
+            snmp_variant_value = self.get_variant_value_type(self.node_dict[kid[3]])
             f.write(f"    case {kid[2]}: // {kid[0]}\n")
             if i == 0:
                 f.write(f"        value->{snmp_variant_value} = index;\n")
             else:
                 kid_name = '"' + kid[0] + '"'
+                if "enums" in self.node_dict[kid[3]]:
+                    f.write(
+                        f"        // {self.get_enums_str(self.node_dict[kid[3]])}\n"
+                    )
                 f.write(
                     f"        value->{snmp_variant_value} = "
                     f"{kid_name if snmp_variant_value == 'const_ptr'  else '*column'};\n"
@@ -289,7 +367,7 @@ class MibGenerator:
             f.write("        break;\n")
         f.write("    default:\n")
         f.write("        return SNMP_ERR_NOSUCHINSTANCE;\n")
-        f.write("    }\n\n")
+        f.write("    }\n")
         f.write("    return SNMP_ERR_NOERROR;\n")
         f.write("}\n\n")
 
@@ -362,17 +440,28 @@ class MibGenerator:
             "    u32_t index = instance->instance_oid.id[2];\n"
             f"    if (index > {bounds[-1]})\n"
             "        return SNMP_ERR_NOSUCHINSTANCE;\n\n"
-            "    u32_t *uint_ptr = (u32_t *)value;\n"
             "    switch (column)\n"
             "    {\n"
         )
-        for kid in node["kids"]:
-            f.write(
-                f"    case {kid[2]}: // {kid[0]}\n"
-                f"        *uint_ptr = {kid[2]};\n"
-                "        return sizeof(*uint_ptr);\n"
-            )
-        f.write("    default:\n        return 0;\n    }\n    return 0;\n}\n\n")
+        for i, kid in enumerate(node["kids"]):
+            f.write(f"    case {kid[2]}: // {kid[0]}\n")
+            ct = self.get_ctype(self.node_dict[kid[3]])
+            if i == 0:
+                f.write(f"        *({ct} *)value = index;\n")
+                f.write(f"        return sizeof(*({ct} *)value);\n")
+            else:
+                if "enums" in self.node_dict[kid[3]]:
+                    f.write(
+                        f"        // {self.get_enums_str(self.node_dict[kid[3]])}\n"
+                    )
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write('        return sprintf((char*)value, "abcdef");\n')
+                else:
+                    f.write(
+                        f"        *({ct} *)value = {kid[2]};\n"
+                        f"        return sizeof(*({ct} *)value);\n"
+                    )
+        f.write("    default:\n        return 0;\n    }\n}\n\n")
 
     def generate_table_set_test_method(self, node):
         """生成table set_test函数"""
@@ -398,11 +487,28 @@ class MibGenerator:
         )
         for kid in node["kids"]:
             kid_node = self.node_dict[kid[3]]
-            if kid_node["access"] in ["read-write", "write-only"]:
-                f.write(
-                    f"    case {kid[2]}: // {kid[0]}\n"
-                    "        return SNMP_ERR_NOERROR;\n"
-                )
+            if kid_node["access"] not in ["read-write", "write-only"]:
+                continue
+            bound = self.get_bounds(kid_node)
+            ct = self.get_ctype(kid_node)
+            if len(bound) == 1:
+                f.write(f"    case {kid[2]}: // {kid[0]}\n")
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write(f"        if (len != {bound[0]})\n")
+                else:
+                    f.write(f"        if (*({ct} *)value != {bound[0]})\n")
+                f.write("            return SNMP_ERR_WRONGVALUE;\n        break;\n")
+            elif len(bound) == 2:
+                f.write(f"    case {kid[2]}: // {kid[0]}\n")
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write(f"        if (len < {bound[0]} || len > {bound[1]})\n")
+                else:
+                    f.write(
+                        f"        if (*({ct} *)value < {bound[0]} || *({ct} *)value > {bound[1]})\n"
+                    )
+                f.write("            return SNMP_ERR_WRONGVALUE;\n        break;\n")
+            else:
+                f.write(f"    case {kid[2]}: break; // {kid[0]}\n")
         f.write(
             "    default:\n"
             "        return SNMP_ERR_NOSUCHINSTANCE;\n"
@@ -436,15 +542,17 @@ class MibGenerator:
         for kid in node["kids"]:
             kid_node = self.node_dict[kid[3]]
             if kid_node["access"] in ["read-write", "write-only"]:
-                f.write(
-                    f"    case {kid[2]}: // {kid[0]}\n"
-                    "        return SNMP_ERR_NOERROR;\n"
-                )
+                f.write(f"    case {kid[2]}: // {kid[0]}\n")
+                ct = self.get_ctype(kid_node)
+                if ct == self.syntax_ctype_dict["octet"]:
+                    f.write("        // (char *)value;\n")
+                else:
+                    f.write(f"        // *({ct} *)value;\n")
+                f.write("        return SNMP_ERR_NOERROR;\n")
         f.write(
             "    default:\n"
             "        return SNMP_ERR_NOSUCHINSTANCE;\n"
             "    }\n"
-            "    return SNMP_ERR_NOERROR;\n"
             "}\n\n"
         )
 
@@ -459,11 +567,18 @@ class MibGenerator:
             f"s16_t {node['parent_name']}_{node['name']}_get_value("
             "struct snmp_node_instance *node, void *value)\n"
             "{\n"
-            "    u32_t *uint_ptr = (u32_t *)value;\n\n"
-            f"    *uint_ptr = {node['subId']};\n"
-            "    return sizeof(*uint_ptr);\n"
-            "}\n\n"
         )
+        if "enums" in node:
+            f.write(f"    // {self.get_enums_str(node)}\n")
+        ct = self.get_ctype(node)
+        if ct == self.syntax_ctype_dict["octet"]:
+            f.write('    return sprintf((char*)value, "abcdef");\n')
+        else:
+            f.write(
+                f"    *({ct} *)value = {node['subId']};\n"
+                f"    return sizeof(*({ct} *)value);\n"
+            )
+        f.write("}\n\n")
 
     def generate_scalar_test_method(self, node):
         """生成scalar_test_method"""
@@ -476,10 +591,27 @@ class MibGenerator:
             f"snmp_err_t {node['parent_name']}_{node['name']}_set_test("
             "struct snmp_node_instance *node, u16_t len, void *value)\n"
             "{\n"
-            "    snmp_err_t ret = SNMP_ERR_NOERROR;\n\n"
-            "    return ret;\n"
-            "}\n\n"
         )
+        if node["access"] not in ["read-write", "write-only"]:
+            f.write("    return SNMP_ERR_NOACCESS;\n}\n\n")
+            return
+        bound = self.get_bounds(node)
+        ct = self.get_ctype(node)
+        if len(bound) == 1:
+            if ct == self.syntax_ctype_dict["octet"]:
+                f.write(f"    if (len != {bound[0]})\n")
+            else:
+                f.write(f"    if (*({ct} *)value != {bound[0]})\n")
+            f.write("        return SNMP_ERR_WRONGVALUE;\n")
+        elif len(bound) == 2:
+            if ct == self.syntax_ctype_dict["octet"]:
+                f.write(f"    if (len < {bound[0]} || len > {bound[1]})\n")
+            else:
+                f.write(
+                    f"    if (*({ct} *)value < {bound[0]} || *({ct} *)value > {bound[1]})\n"
+                )
+            f.write("        return SNMP_ERR_WRONGVALUE;\n")
+        f.write("    return SNMP_ERR_NOERROR;\n}\n\n")
 
     def generate_scalar_set_method(self, node):
         """生成scalar_set_method"""
@@ -492,10 +624,16 @@ class MibGenerator:
             f"snmp_err_t {node['parent_name']}_{node['name']}_set_value("
             "struct snmp_node_instance *node, u16_t len, void *value)\n"
             "{\n"
-            "    snmp_err_t ret = SNMP_ERR_NOERROR;\n\n"
-            "    return ret;\n"
-            "}\n\n"
         )
+        if node["access"] not in ["read-write", "write-only"]:
+            f.write("    return SNMP_ERR_NOACCESS;\n}\n\n")
+            return
+        ct = self.get_ctype(node)
+        if ct == self.syntax_ctype_dict["octet"]:
+            f.write("    // (char *)value;\n")
+        else:
+            f.write(f"    // *({ct} *)value;\n")
+        f.write("    return SNMP_ERR_NOERROR;\n}\n\n")
 
     def generate_scalar_array(self, node):
         """生成array scalar"""
@@ -504,25 +642,34 @@ class MibGenerator:
             f"extern const struct snmp_scalar_array_node {node['name']}_root;\n"
         )
         self.generate_scalar_array_get_method(node)
-        self.generate_scalar_array_test_method(node)
-        self.generate_scalar_array_set_method(node)
+        if self.get_scalar_array_writable(node):
+            self.generate_scalar_array_test_method(node)
+            self.generate_scalar_array_set_method(node)
         f = self.out_file_c
         f.write(
             f"static const struct snmp_scalar_array_node_def {node['name']}_nodes[] = {'{'}\n"
         )
         for kid in node["kids"]:
             f.write(
-                f"    {'{'}{kid[2]}, {self.get_syntax_type(self.node_dict[kid[3]]['syntax'])}, "
-                f"{self.get_access(self.node_dict[kid[3]]['access']) }{'}'}, // {kid[0]}\n"
+                f"    {'{'}{kid[2]}, {self.get_syntax_type(self.node_dict[kid[3]])}, "
+                f"{self.get_access(self.node_dict[kid[3]]) }{'}'}, // {kid[0]}\n"
             )
         f.write("};\n")
-        f.write(
-            f"const struct snmp_scalar_array_node {node['name']}_root =\n"
-            f"    SNMP_SCALAR_CREATE_ARRAY_NODE({node['subId']}, {node['name']}_nodes,\n"
-            f"                                  {node['name']}_get_value,\n"
-            f"                                  {node['name']}_set_test,\n"
-            f"                                  {node['name']}_set_value);\n\n"
-        )
+        if self.get_scalar_array_writable(node):
+            f.write(
+                f"const struct snmp_scalar_array_node {node['name']}_root =\n"
+                f"    SNMP_SCALAR_CREATE_ARRAY_NODE({node['subId']}, {node['name']}_nodes,\n"
+                f"                                  {node['name']}_get_value,\n"
+                f"                                  {node['name']}_set_test,\n"
+                f"                                  {node['name']}_set_value);\n\n"
+            )
+        else:
+            f.write(
+                f"const struct snmp_scalar_array_node {node['name']}_root =\n"
+                f"    SNMP_SCALAR_CREATE_ARRAY_NODE({node['subId']}, {node['name']}_nodes,\n"
+                f"                                  {node['name']}_get_value,\n"
+                "                                  NULL, NULL);\n\n"
+            )
 
     def generate_empty_tree(self, node):
         """生成empty tree"""
@@ -583,7 +730,7 @@ class MibGenerator:
         f.write(
             f"const struct snmp_scalar_node {node['name']}_root = "
             f"SNMP_SCALAR_CREATE_NODE({node['subId']}, "
-            f"{self.get_access(node['access'])}, {self.get_syntax_type(node['syntax'])}, "
+            f"{self.get_access(node)}, {self.get_syntax_type(node)}, "
             f"{node['parent_name']}_{node['name']}_get_value, {set_func_name});\n\n"
         )
 
@@ -637,6 +784,13 @@ class MibGenerator:
                 return True
         return False
 
+    def get_scalar_array_writable(self, node):
+        """判断是否可写"""
+        for kid in node["kids"]:
+            if self.node_dict[kid[3]]["access"] in ["read-write", "write-only"]:
+                return True
+        return False
+
     def generate_row(self, node):
         """生成row"""
         print("row: ", node["name"])
@@ -647,8 +801,8 @@ class MibGenerator:
         )
         for kid in node["kids"]:
             f.write(
-                f"    {'{'}{kid[2]}, {self.get_syntax_type(self.node_dict[kid[3]]['syntax'])}, "
-                f"{self.get_access(self.node_dict[kid[3]]['access'])}{'}'}, // {kid[0]}\n"
+                f"    {'{'}{kid[2]}, {self.get_syntax_type(self.node_dict[kid[3]])}, "
+                f"{self.get_access(self.node_dict[kid[3]])}{'}'}, // {kid[0]}\n"
             )
         f.write("};\n")
 
@@ -662,8 +816,8 @@ class MibGenerator:
         )
         for kid in node["kids"]:
             f.write(
-                f"    {'{'}{kid[2]}, {self.get_syntax_type(self.node_dict[kid[3]]['syntax'])}, "
-                f"{self.get_data_type(self.node_dict[kid[3]]['syntax'])}{'}'}, // {kid[0]}\n"
+                f"    {'{'}{kid[2]}, {self.get_syntax_type(self.node_dict[kid[3]])}, "
+                f"{self.get_data_type(self.node_dict[kid[3]])}{'}'}, // {kid[0]}\n"
             )
         f.write("};\n")
 
@@ -679,9 +833,7 @@ class MibGenerator:
         self.struct_declare.append(f"struct {node['name']} {'{'}\n")
         for obj in node["objects"]:
             kid = self.node_dict[self.name_oid[obj]]
-            self.struct_declare.append(
-                f"    {self.get_ctype(kid['syntax'])} {kid['name']};\n"
-            )
+            self.struct_declare.append(f"    {self.get_ctype(kid)} {kid['name']};\n")
         self.struct_declare.append("};\n\n")
         self.func_extern.append(
             f"err_t send_trap_{node['name']}(const struct {node['name']} *trap);\n"
@@ -716,9 +868,7 @@ class MibGenerator:
                 f"    snmp_oid_assign(&vb_{kid['name']}->oid, "
                 f"oid_{kid['name']}.id, oid_{kid['name']}.len);\n"
             )
-            f.write(
-                f"    vb_{kid['name']}->type = {self.get_syntax_type(kid['syntax'])};\n"
-            )
+            f.write(f"    vb_{kid['name']}->type = {self.get_syntax_type(kid)};\n")
             if kid["syntax"].lower() in ["octet", "displaystring"]:
                 f.write(
                     f"    vb_{kid['name']}->value = (void *)trap->{kid['name']};\n"
@@ -801,6 +951,7 @@ class MibGenerator:
                 self.generate_tree(node)
                 for kid in node["kids"]:
                     self.process_node_dict(self.node_dict[kid[3]])
+                return
         elif tp == "scalar":
             self.generate_scalar(node)
             return
@@ -812,10 +963,7 @@ class MibGenerator:
             return
 
     def process(self):
-        """process each mib node in the list
-        starting from lowest leaves and working
-        backwards to the root node - 'private'
-        """
+        """process mib"""
         self.process_node_dict(self.node_dict[(1, 3, 6, 4, 1)])
         self.generate_mibs(self.node_dict[(1, 3, 6, 4, 1)])
         self.generate_extern()
